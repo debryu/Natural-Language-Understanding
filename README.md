@@ -3,5 +3,5 @@ Series of small projects for the natural language understanding course
 
 
 ## Requirements:
-conda install -c anaconda nltk
-conda install -c conda-forge spacy
+- conda install -c anaconda nltk
+- conda install -c conda-forge spacy
