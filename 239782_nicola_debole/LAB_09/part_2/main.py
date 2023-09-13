@@ -115,15 +115,15 @@ if __name__ == "__main__":
     '''
     clip = 5 # Clip the gradient
     #learning_rate = 0.45 # Used for training from scratch the model checkpoint
-    learning_rate = 0.45 # Used for fine tuning
+    learning_rate = 0.05 # Used for fine tuning
     n_epochs = 300
     patience_lvl = 10
     patience = patience_lvl
     # Set to True if you want to train the model
-    train = True
+    train = False
     # Set to False if you want to train the model from scratch
     # Otherwise it will load the model checkpoint
-    load_model_checkpoint = False 
+    load_model_checkpoint = True 
     losses_train = []
     losses_dev = []
     sampled_epochs = []
@@ -186,16 +186,16 @@ if __name__ == "__main__":
     --------------------------------------------
     '''
     clip = 5 # Clip the gradient
-    #learning_rate = 0.45 # Used for training from scratch the model checkpoint
-    learning_rate = 4.5 # Used for fine tuning
+    #learning_rate = 4.5 # Used for training from scratch the model checkpoint
+    learning_rate = 0.45 # Used for fine tuning
     n_epochs = 300
-    patience_lvl = 10
+    patience_lvl = 3
     patience = patience_lvl
     # Set to True if you want to train the model
-    train = True
+    train = False
     # Set to False if you want to train the model from scratch
     # Otherwise it will load the model checkpoint
-    load_model_checkpoint = False 
+    load_model_checkpoint = True 
     losses_train = []
     losses_dev = []
     sampled_epochs = []
