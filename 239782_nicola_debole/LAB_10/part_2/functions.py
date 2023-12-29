@@ -6,6 +6,7 @@ import torch
 from conll import evaluate
 from sklearn.metrics import classification_report
 from tqdm import tqdm
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def create_ds(tmp_train_raw, test_raw):
     # Firt we get the 10% of dataset, then we compute the percentage of these examples 
@@ -34,10 +35,19 @@ def create_ds(tmp_train_raw, test_raw):
 
     return train_raw, dev_raw
 
+
+
 def produce_words_int_slots(train_raw, dev_raw, test_raw):
+    '''
+        args: train dataset raw, dev dataset raw, test dataset raw
+        returns: 
+                - words: list of all the words in the dataset
+                - intents: set of all the intents in the dataset
+                - slots: set of all the slots in the dataset
+    '''
     words = sum([x['utterance'].split() for x in train_raw], []) # No set() since we want to compute 
                                                                 # the cutoff
-    corpus = train_raw + dev_raw + test_raw # We do not wat unk labels, 
+    corpus = train_raw + dev_raw + test_raw # We do not want unk labels, 
                                             # however this depends on the research purpose
     slots = set(sum([line['slots'].split() for line in corpus],[]))
     intents = set([line['intent'] for line in corpus])
@@ -50,14 +60,14 @@ def train_loop(data, optimizer, criterion_slots, criterion_intents, model):
     loss_slots = []
     for sample in tqdm(data):
         optimizer.zero_grad() # Zeroing the gradient
-        slots, intent = model(sample['utterances'], sample['slots_len'])
+        slots, intent = model(sample['utterances'].to(device), sample['slots_len'].to(device))
         #print(slots)
         loss_intent = criterion_intents(intent, sample['intents'])
         loss_slot = criterion_slots(slots, sample['y_slots'])
-        loss_intents.append(loss_intent.item())
-        loss_slots.append(loss_slot.item())
+        loss_intents.append(loss_intent.detach().cpu().item())
+        loss_slots.append(loss_slot.detach().cpu().item())
         loss = loss_intent + loss_slot                            
-        loss_array.append(loss.item())
+        loss_array.append(loss.detach().cpu().item())
         loss.backward() # Compute the gradient, deleting the computational graph
         # clip the gradient to avoid explosioning gradients
         # torch.nn.utils.clip_grad_norm_(model.parameters(), clip)  

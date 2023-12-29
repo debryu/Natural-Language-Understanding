@@ -7,13 +7,16 @@ from main import device
 import json
 from pprint import pprint
 from model import bert_tokenizer
+from torch.utils.data import DataLoader
 # Define the ID for the pad token
 PAD_TOKEN = bert_tokenizer.pad_token_id
 
 def load_data(path):
     '''
-        input: path/to/data
-        output: json 
+        args:
+            input: path/to/data
+        returns:
+            output: json 
     '''
     dataset = []
     with open(path) as f:
@@ -41,7 +44,6 @@ def init_weights(mat):
                     m.bias.data.fill_(0.01)
 
 
-from torch.utils.data import DataLoader
 
 def collate_fn(data):
     def merge(sequences):
@@ -117,7 +119,15 @@ class IntentsAndSlots (data.Dataset):
     def mapping_lab(self, data, mapper):
         return [mapper[x] if x in mapper else mapper[self.unk] for x in data]
     
-    def mapping_seq(self, data, mapper): # Map sequences to number
+    def mapping_seq(self, data, mapper): 
+        '''
+            Map sequences to number
+            Args:
+                data: list of sequences
+                mapper: function to map the token to ids (tokenizer)
+            Returns:
+                res: list of token ids
+        '''
         res = []
         for seq in data:
             tmp_seq = []
@@ -129,7 +139,15 @@ class IntentsAndSlots (data.Dataset):
             res.append(tmp_seq)
         return res
     
-    def mapping_bert(self, data, mapper): # Tokenize the sentence with the bert tokenizer
+    def mapping_bert(self, data, mapper): 
+        '''
+            Tokenize the sentence with the bert tokenizer
+            Args:
+                data: list of sentences
+                mapper: function to map the token to ids (tokenizer)
+            Returns:
+                res: list of token ids
+        '''
         res = []
         for seq in data:
             tmp_seq = []
@@ -141,24 +159,43 @@ class IntentsAndSlots (data.Dataset):
     
 class Tokenizer_id():
     def __init__(self, words, intents, slots, cutoff=0):
-        self.slot2id = self.lab2id(slots)
-        self.intent2id = self.lab2id(intents, pad=False)
+        self.slot2id = self.lab2id(slots) # Convert the slots to ids
+        self.intent2id = self.lab2id(intents, pad=False) # Convert the intents to ids
         self.id2slot = {v:k for k, v in self.slot2id.items()}
         self.id2intent = {v:k for k, v in self.intent2id.items()}
         
     def word2id(self, words, cutoff=0, unk=True):
-        #print("words: ", words)
+        '''
+            Convert words to tokens ids using the bert tokenizer
+            args: 
+                words: list of words
+            returns:    
+                ids: list of tokens ids
+        '''
         ids = bert_tokenizer.tokenize(words)
+        # This is foundamental, as we take only the first subword token
         ids = bert_tokenizer.convert_tokens_to_ids(ids)[0]
-        #print("ids: ", ids)
         return ids
     
     def id2word(self, ids):
+        '''
+            Convert tokens ids to words using the bert tokenizer
+            args: 
+                ids: list of token ids
+            returns:    
+                words: list of words
+        '''
         # Convert the ids to integers
         ids = int(ids)
         return bert_tokenizer.convert_ids_to_tokens(ids)
     
     def lab2id(self, elements, pad=True):
+        '''
+            args: 
+                elements: set of elements
+            returns:    
+                vocab: dictionary with elements as keys and ids as values
+        '''
         vocab = {}
         if pad:
             vocab['pad'] = PAD_TOKEN

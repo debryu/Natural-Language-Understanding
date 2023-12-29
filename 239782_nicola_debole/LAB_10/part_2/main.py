@@ -15,15 +15,11 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 if __name__ == "__main__":
-    #Wrtite the code to load the datasets and to run your functions
-    # Print the results
     tmp_train_raw = load_data(os.path.join('dataset','ATIS','train.json'))
     test_raw = load_data(os.path.join('dataset','ATIS','test.json'))
     train_raw, dev_raw = create_ds(tmp_train_raw, test_raw)
     words,intents,slots = produce_words_int_slots(train_raw, dev_raw, test_raw)
-    #print(words[0])
-    #print(intents)
-    #print(slots)
+
     tok_id = Tokenizer_id(words, intents, slots, cutoff=0)
 
     # Create our datasets
@@ -40,18 +36,18 @@ if __name__ == "__main__":
     START TRAINING
     
     '''
-    use_different_lr = False
+    use_different_lr = True
     hid_size = 200
     emb_size = 300
 
-    lr = 0.0001 # learning rate
+    lr = 0.001 # learning rate
     clip = 5 # Clip the gradient
 
     out_slot = len(tok_id.slot2id)
     out_int = len(tok_id.intent2id)
     vocab_len = len(bert_tokenizer.vocab)
 
-    runs = 5
+    runs = 2
     slot_f1s, intent_acc = [], []
     for run in tqdm(range(0, runs)):
         model = Bert_Intent_Slot(out_slot, out_int, vocab_len, pad_index=PAD_TOKEN).to(device)
@@ -59,26 +55,30 @@ if __name__ == "__main__":
         params = list(model.parameters())
         bert_params = params[:197]
         head_params = params[197:]
-        #for i,p in enumerate(params):
-        #    print(i,p[0], str(tuple(p[1].size())))
-        #for i,p in enumerate(bert_params):
-        #    print(i,p[0], str(tuple(p[1].size())))
-        #for i,p in enumerate(head_params):
-        #    print(i,p[0], str(tuple(p[1].size())))
+        '''
+        Code for showing all the parameters
+            for i,p in enumerate(params):
+                print(i,p[0], str(tuple(p[1].size())))
+            for i,p in enumerate(bert_params):
+                print(i,p[0], str(tuple(p[1].size())))
+            for i,p in enumerate(head_params):
+                print(i,p[0], str(tuple(p[1].size())))
+        '''
+        
         
         if(use_different_lr):
             # Use two different optimizer
             bert_optimizer = optim.Adam(bert_params, lr=0.000001)
-            head_optimizer = optim.Adam(head_params, lr=0.0001)
+            head_optimizer = optim.Adam(head_params, lr=lr)
         else:
             optimizer = optim.Adam(model.parameters(), lr=lr)
 
 
-
+        model = model.to(device)  
         criterion_slots = nn.CrossEntropyLoss(ignore_index=PAD_TOKEN)
         criterion_intents = nn.CrossEntropyLoss()
         
-        n_epochs = 50
+        n_epochs = 15
         patience = 3
         losses_train = []
         losses_dev = []
@@ -103,8 +103,9 @@ if __name__ == "__main__":
                     best_f1 = f1
                 else:
                     patience -= 1
-                #if patience <= 0: # Early stoping with patient
-                    #break # Not nice but it keeps the code clean
+                if patience <= 0: # Early stoping with patient
+                    break
+                break
         results_test, intent_test, _ = eval_loop(test_loader, criterion_slots, 
                                                 criterion_intents, model, tok_id)
         intent_acc.append(intent_test['accuracy'])
