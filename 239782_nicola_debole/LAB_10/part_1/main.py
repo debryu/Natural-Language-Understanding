@@ -82,7 +82,7 @@ if __name__ == "__main__":
                 else:
                     patience -= 1
                 if patience <= 0: # Early stoping with patient
-                    break # Not nice but it keeps the code clean
+                    break 
 
         results_test, intent_test, _ = eval_loop(test_loader, criterion_slots, 
                                                 criterion_intents, model, tok_id)

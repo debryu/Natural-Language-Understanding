@@ -16,7 +16,6 @@ class ModelIAS(nn.Module):
         # Double the input size to account for the bidirectionality
         self.slot_out = nn.Linear(hid_size*2, out_slot)
         self.intent_out = nn.Linear(hid_size, out_int)
-        # Dropout layer How do we apply it?
         self.dropout = nn.Dropout(0.2)
         
     def forward(self, utterance, seq_lengths):
@@ -25,8 +24,7 @@ class ModelIAS(nn.Module):
         # Add dropout layer
         utt_emb = self.dropout(utt_emb)
         utt_emb = utt_emb.permute(1,0,2) # we need seq len first -> seq_len X batch_size X emb_size
-        # pack_padded_sequence avoid computation over pad tokens reducing the computational cost
-        
+        #pack_padded_sequence avoid computation over pad tokens reducing the computational cost
         packed_input = pack_padded_sequence(utt_emb, seq_lengths.cpu().numpy())
         # Process the batch
         packed_output, (last_hidden, cell) = self.utt_encoder(packed_input) 
