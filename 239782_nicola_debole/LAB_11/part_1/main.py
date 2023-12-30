@@ -18,6 +18,8 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 import copy
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.svm import SVC
 
 if __name__ == "__main__":
     #Wrtite the code to load the datasets and to run your functions
@@ -113,16 +115,14 @@ if __name__ == "__main__":
                     losses_train.append(np.asarray(loss).mean())
                     results_dev, loss_dev = eval_loop(dev_loader, criterion_subjectivity, sub_model, 'tok_sent_padded')                            
                     losses_dev.append(np.asarray(loss_dev).mean())
-                    #print(results_dev)
                     f1 = results_dev['macro avg']['f1-score']
-                    #print(f'Epoch: {x} | F1: {f1}')
                     if f1 > best_f1:
                         best_f1 = f1
                         saved_model = copy.deepcopy(sub_model.lastLayer).to('cpu')
                     else:
                         patience -= 1
                     if patience <= 0: # Early stoping with patient
-                        break # Not nice but it keeps the code clean
+                        break 
             # Save the best model
             if use_different_lr:
                 torch.save(saved_model, f'LAB_11/part_1/models/sub_model_multi_lr_FOLD{i}.pt') 
@@ -199,16 +199,13 @@ if __name__ == "__main__":
         '''
         print("Training and evaluating the SVM model...")
         # Compute the features using tf-ifd for each document
-        from sklearn.feature_extraction.text import TfidfVectorizer
         vectorizer = TfidfVectorizer()
-        
         X_train = vectorizer.fit_transform(train_ds[:]['stringed_document'])
         vectorizer.get_feature_names_out()
-        #print(X_train[0])
         X_test = vectorizer.transform(test_ds[:]['stringed_document'])
-        from sklearn.svm import SVC
+        
+        # Define the SVM model (Support Vector Classification)
         svm = SVC(C = 10000, degree=6, tol = 0.00001, gamma='auto')
-        #print(train_ds[:]['label'])
         svm.fit(X_train, train_ds[:]['label'])
         predictions = svm.predict(X_test)        
         SVM_result = classification_report(test_ds[:]['label'], predictions, zero_division=False, output_dict=True)
@@ -241,6 +238,9 @@ if __name__ == "__main__":
         '''
         ----------------------------------------
         START TRAINING POLARITY MODEL
+        We skip the following code because it is not used
+        And also take too much time to train
+        It is the longformer model for polarity classification
         ----------------------------------------
         '''
         continue
@@ -299,9 +299,10 @@ if __name__ == "__main__":
         # REMOVE THE BREAK FOR THE FINAL TRAINING WITH 10 FOLDS
         break
 
-    print("SUMMARY of the average F1 scores:")
-
+    print("___________________________________________________________")
+    print("---------> [ SUMMARY of the average for F1 scores ] <----------")
+    f1_scores_subjectivity = [ x['macro avg']['f1-score'] for x in kfold_results_subjectivity ]
     f1_scores_SVM = [ x['macro avg']['f1-score'] for x in kfold_SVM_results ]
     f1_scores_SVM_aug = [ x['macro avg']['f1-score'] for x in kfold_SVM_aug_results ]
     f1_scores_vader = [ x['macro avg']['f1-score'] for x in kfold_results_vader ]
-    print(f"SVM: {np.mean(f1_scores_SVM)} - PIPELINE: {np.mean(f1_scores_SVM_aug)} - VADER: {np.mean(f1_scores_vader)}")
+    print(f"- SUBJECTIVITY MODEL: {np.mean(f1_scores_subjectivity)} \n- SVM: {np.mean(f1_scores_SVM)} \n- PIPELINE (SVM + MINIMUM CUT): {np.mean(f1_scores_SVM_aug)} \n- VADER: {np.mean(f1_scores_vader)}")
