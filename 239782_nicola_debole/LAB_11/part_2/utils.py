@@ -1,14 +1,20 @@
-# Add functions or classes used for data loading and preprocessing
 import string
 import numpy as np
 import torch
 from sklearn.cluster import KMeans
+from tqdm import tqdm
+import spacy
+nlp = spacy.load("en_core_web_sm")
+import en_core_web_sm
+nlp = en_core_web_sm.load()
 
 def read_data(path):
     """
-    read data from the specified path
-    :param path: path of dataset
-    :return:
+        Read data from the specified path
+            Args:
+                path: path of dataset
+            Returns:
+                dataset: list of records, each record is a dictionary
     """
     dataset = []
     with open(path, encoding='UTF-8') as fp:
@@ -60,6 +66,14 @@ def read_data(path):
     return dataset
 
 def dataset2glove(dataset, GloVe_embeddings):
+    '''
+        Add to the dataset the GloVe embedding for each wordk
+        Args:
+            dataset: the dataset to be converted
+            GloVe_embeddings: the GloVe embeddings to be used
+        Returns:
+            new_ds: the new dataset
+    '''
     new_ds = []
     for element in dataset:
         sentence = element['words']
@@ -71,22 +85,19 @@ def dataset2glove(dataset, GloVe_embeddings):
             if word != 'PUNCT':
                 # Handle OOV words
                 if word.lower() in GloVe_embeddings:
-                    #print(GloVe_embeddings[word.lower()])
                     emb_sent.append(GloVe_embeddings[word.lower()])
                 else:
                     emb_sent.append(np.zeros(300))
                 ort.append(element['ote_raw_tags'][i])
                 trt.append(element['ts_raw_tags'][i])
                 w.append(word)
-        total_len = len(emb_sent)
-        #print('tl',total_len)
+        total_len = len(emb_sent) # The length of the sentence
         emb_sent = np.array(emb_sent)
         label = torch.zeros(total_len, 4)
         aspects = torch.zeros(total_len, 2)
         index = 0
         for i,word in enumerate(sentence):
             tag = element['ts_raw_tags'][i]
-            #print(tag)
             if word != 'PUNCT':
                 if tag == 'O':
                     label[index][0] = 1
@@ -110,6 +121,16 @@ def dataset2glove(dataset, GloVe_embeddings):
     
 
 def extract_centroids(dataset):
+    '''
+        First create a list of points (in glove embedding space) from all the aspect words in the dataset.
+        Aspects that are multi-word are considered as one point, as their embedding is summed up.
+        Args:
+            dataset: the dataset to be used
+        Returns:
+            points: the list of points
+            words: the list of strings, each point is associated with an item in the list, which defines the aspects.
+    
+    '''
     points = []
     words = []
     for element in dataset:
@@ -155,36 +176,36 @@ def extract_centroids(dataset):
         if curr_word != '':
             points.append(latent_point)
             words.append(curr_word)
-        #print(curr_word)
         latent_point = np.zeros(300)
         curr_tag = None
-        curr_word = ''
-        #break
-                
+        curr_word = ''                
     return points,words
 
 def integrate_dataset_with_centroids(dataset, centroids:torch.tensor, cluster:KMeans):
-   
+    '''
+        Add to the dataset the cosine similarity of each word with each cluster
+        Args:
+            dataset: the dataset to be integrated
+            centroids: the centroids of the clusters
+            cluster: the KMeans object
+        Returns:
+            dataset: the new dataset
+    '''
 
-    for element in dataset:
+    for element in tqdm(dataset):
         similarity_fn = torch.nn.CosineSimilarity(dim=1)
         sentence_embedding = torch.tensor(element['emb'])
         similarity_score = torch.zeros((sentence_embedding.shape[0],centroids.shape[0]))
-        assigned_aspect = cluster.predict(sentence_embedding)
+        assigned_aspect = cluster.predict(sentence_embedding) # Not used right now 
+        # It basicallt assigns each word to a cluster, for now I just want to distinguish between aspect and no aspect
+        # Without caring about which aspect it is
         assigned_aspect += 1 # To leave the 0 for the padded/no cluster slots
-        #print(assigned_aspect)
         for i,word_embedding in enumerate(sentence_embedding):
             similarity_score[:] = similarity_fn(word_embedding, centroids[:])
         element['cosine'] = similarity_score
-        element['cluster'] = torch.ones((assigned_aspect.shape))#torch.tensor(assigned_aspect)
+        element['cluster'] = torch.ones((assigned_aspect.shape))
         # Find where there is no aspect
         no_cluster = torch.argwhere(element['label'][:,0] == torch.tensor(1.0))
-        #print(element['label'].shape)
-        #print(element['cluster'].shape)
-        #print(no_cluster)
         element['cluster'][no_cluster] = torch.tensor(0.0)
         
     return dataset
-        #print(similarity_score.shape)
-        #print(similarity_score[0])
-        #break
