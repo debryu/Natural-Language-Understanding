@@ -1,18 +1,8 @@
 import numpy as np
 from tqdm import tqdm 
 import torch
-
-
-GloVe_embeddings = {}
-print("Loading GloVe embeddings...")
-with open("dataset/LAB11_part2/glove.6B.300d.txt", 'r') as f:
-    total_lines = 400000
-    for line in tqdm(f,total=total_lines):
-        values = line.split()
-        word = values[0]
-        vector = np.asarray(values[1:], "float32")
-        GloVe_embeddings[word] = vector
-print("Done.")
+from torch.nn.utils.rnn import pack_padded_sequence
+from torch.nn.utils.rnn import pad_packed_sequence
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -31,7 +21,7 @@ class MReLU(torch.nn.Module):
         super(MReLU, self).__init__()
         self.size = size
         self.alpha = torch.nn.Parameter(torch.ones((self.size)), requires_grad=True)
-        self.beta = torch.nn.Parameter(torch.ones((self.size)), requires_grad=True)
+        self.beta = torch.nn.Parameter(torch.ones(1), requires_grad=True)
         self.activation = torch.nn.ReLU()
     def forward(self, input):
         # The shape of the input is [batch, size]
@@ -39,6 +29,7 @@ class MReLU(torch.nn.Module):
         input = torch.einsum('ea,a->ea', input, self.alpha)
         # Add the corresponding beta
         #input = input + self.beta
+        
         # now we have to apply the max function
         input = self.activation(input)
         return input
@@ -57,7 +48,7 @@ TO RECAP:
 
 '''
 class ASPECT_DETECTION(torch.nn.Module):
-    def __init__(self, n_clusters = 128, hidden = 256):
+    def __init__(self, n_clusters = 512, hidden = 256):
         super(ASPECT_DETECTION, self).__init__()
         self.n_clusters = n_clusters
         self.n_classes = n_clusters+1
@@ -67,19 +58,20 @@ class ASPECT_DETECTION(torch.nn.Module):
         self.hidden1 = torch.nn.Linear(hidden, 1024)
         self.hidden2 = torch.nn.Linear(1024, 1024)
         self.hidden3 = torch.nn.Linear(1024, hidden)
-        #self.droput = torch.nn.Dropout(p=0.2)
+        self.droput = torch.nn.Dropout(p=0.1)
         self.final_layer = torch.nn.Linear(hidden, 2)
         self.activation = torch.nn.ReLU()
         # One class is the "no aspect" class
         self.logits = torch.nn.Softmax(dim=2)
 
+        self.test1=torch.nn.Linear(1, 10)
+        self.test2=torch.nn.Linear(10, 10)
+        self.test3=torch.nn.Linear(10, 2)
+
     def forward(self, input):
         # Input size is [batch, seq_len, 300]
         batch_size = input.shape[0]
         sent_len = input.shape[1]
-        #print(batch_size, sent_len)
-        #print(batch_size*sent_len)
-        #print(input.shape)
         input = input.reshape(-1, self.n_clusters)
         input = self.first_layer(input)
         input = self.hidden_layer(input)
@@ -88,34 +80,58 @@ class ASPECT_DETECTION(torch.nn.Module):
         input = self.activation(input)
         input = self.hidden2(input)
         input = self.activation(input)
+        input = self.droput(input)
         input = self.hidden3(input)
         input = self.activation(input)
-        #input = self.droput(input)
         output = self.final_layer(input)
-        #print(output.shape) 
+      
         output = output.reshape(batch_size, sent_len, 2)
-        #print(output.shape)
         output = self.logits(output)
         return output
 
 
 class ABSA(torch.nn.Module):
-    def __init__(self, classes = 4, embedding_dim = 300):
+    def __init__(self, classes = 4, n_clusters = 512):
         super(ABSA, self).__init__()
-        self.lstm_compression = LSTM(input_size=300, hidden_size=1, nl=10)
-        self.lstm_decoder = LSTM(input_size=4, hidden_size=32, nl=5)
+        self.lstm_encoder = LSTM(input_size=300, hidden_size=1024, nl=5)
+        self.lstm_compressor = torch.nn.Sequential(
+            torch.nn.Linear(1024*2, 2),
+            torch.nn.ReLU(),
+        )
+        self.lstm_bottle = torch.nn.Sequential(
+            torch.nn.Linear(2048, 1024),
+            torch.nn.ReLU(),
+        )
+        self.elaborate = torch.nn.Sequential(
+            torch.nn.Linear(66, 512),
+            torch.nn.ReLU(),
+            torch.nn.Linear(512, 1024),
+            torch.nn.ReLU(),
+        )
+        self.lstm_decoder = LSTM(input_size=1024, hidden_size=32, nl=5)
+        self.aspect_detection_module = ASPECT_DETECTION(n_clusters=n_clusters)
         #self.aspect_detection = AspectDetection()
-        self.classifier = torch.nn.Linear(64, classes)
+        self.classifier1 = torch.nn.Linear(32, classes)
+        self.classifier2 = torch.nn.Linear(1024, classes)
         self.logits = torch.nn.Softmax(dim=1)
-        self.dropouLayer = torch.nn.Dropout(p=0.2)
+        self.dropouLayer = torch.nn.Dropout(p=0.1)
 
-    def forward(self, input):
-        aspect = self.aspect_detection(input) #[batch_size, seq_len, 2]
-        input = self.dropouLayer(input) #[batch_size, seq_len, 300]
-        compressed_input, (h_n, c_n) = self.lstm_compression(input) #[batch_size, seq_len, 2]
-        input = torch.cat((compressed_input, aspect), dim=2) #[batch_size, seq_len, 302]
-        output, (h_n, c_n) = self.lstm_decoder(input)
-        #print(output.shape)
-        output = self.classifier(output)
+    def forward(self, input, cosine, len):
+        aspect = self.aspect_detection_module(cosine) #[batch_size, seq_len, 2]
+        #input = self.dropouLayer(input) #[batch_size, seq_len, 300]
+        input = pack_padded_sequence(input, lengths=len, batch_first=True, enforce_sorted=False)
+        input, (h_n, c_n) = self.lstm_encoder(input) #[batch_size, seq_len, 2]
+        pad_input, _ = pad_packed_sequence(input, batch_first=True)
+        compressed_input = self.lstm_compressor(pad_input)
+        #print(compressed_input.shape)
+        #print(aspect.shape)
+        output1 = aspect*compressed_input
+        input = self.lstm_bottle(pad_input)
+        input = pack_padded_sequence(input, lengths=len, batch_first=True, enforce_sorted=False)
+        output2, (h_n, c_n) = self.lstm_decoder(input)
+        output2, _ = pad_packed_sequence(output2, batch_first=True)
+        output = torch.cat((output1, output2), dim=2)
+        output = self.elaborate(output)
+        output = self.classifier2(output)
         output = self.logits(output)
         return output, aspect
