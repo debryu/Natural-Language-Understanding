@@ -43,11 +43,35 @@ polarity_ds = rev_neg + rev_pos
 kfold = KFold(n_splits=10, random_state=None, shuffle = True)
 
 def association(i,j,T):
+    '''
+        Function used to compute the association between two sentences
+        Or in other words the strength of the edge between two nodes in the graph
+        Args:
+            i: The index of the first sentence
+            j: The index of the second sentence
+            T: The threshold
+        Returns:
+            strength: The strength of the edge between the two nodes
+
+        This is used to make sure that sentences that are too far away from each other
+        have a weaker association.
+    '''
     if (i-j) <= T:
         return 0
     else:
         return 1/(i-j)**2
+    
 def generate_graph(ds,logits):
+    '''
+        This function creates a graph for each document, where each node is a sentence.
+        Then adds two nodes, one for objective sentences and one for subjective sentences.
+        Then adds the edges between the nodes.
+        Args:
+            ds: The dataset
+            logits: The score of the sentence from applying the subjectivity model
+        Returns:
+            G: The graph
+    '''
     #print(len(ds),len(logits))
     # Create a node for each sentence
     # And add it to the graph
@@ -102,7 +126,6 @@ def collate_fn(data):
         for i, seq in enumerate(sequences):
             end = lengths[i]
             padded_seqs[i, :end] = seq # We copy each sequence into the matrix
-        # print(padded_seqs)
         padded_seqs = padded_seqs.detach()  # We remove these tensors from the computational graph
         return padded_seqs, lengths
     # Sort data by seq lengths
@@ -138,7 +161,7 @@ class PolarityDataset(data.Dataset):
         '''------------------------'''
 
         self.analizer = SentimentIntensityAnalyzer()
-        #print(len(self.all_movie_reviews))
+        
         removed_sentences = 0
         progress_bar = tqdm(total=len(self.all_movie_reviews))
         for review in self.all_movie_reviews:        
@@ -146,7 +169,6 @@ class PolarityDataset(data.Dataset):
             document = []
             stringed_sents = []
 
-            #print(len(review))
             for sent in review:
                 sentence = []
                 # Skip all the sentences with less than 3 words
@@ -164,9 +186,7 @@ class PolarityDataset(data.Dataset):
                     sentence.append(word)
                 document.append(sentence)
                 review_length += 1
-                #tok_sent = bert_tokenizer.encode(sent, return_tensors="pt", add_special_tokens=True).squeeze(0)
-                #print('tok sent', tok_sent)
-                #tokenized_review.append(tok_sent)
+                
             '''
                 # Join the sentences in a document
                 # Then do some basic reformatting of the string
@@ -181,8 +201,7 @@ class PolarityDataset(data.Dataset):
             self.tokenized_reviews.append(tokenized_stringed_document)
             self.tokenized_reviews_lengths.append(len(tokenized_stringed_document))
             '''----------------------------------------------------------------------------------------------------------------'''
-            #print('tok rev', len(tokenized_review))
-            #self.tokenized_reviews.append(tokenized_review)
+            
             self.documents_lengths.append(review_length)
             self.documents.append(document)
             progress_bar.update(1)
@@ -199,9 +218,6 @@ class PolarityDataset(data.Dataset):
             self.documents_scores.append(score)
             self.documents_lengths.append(len(score))
         '''----------------------------------------------------------------------------------------------------------------'''
-        
-        #print(len(self.tokenized_reviews))
-
 
     def __len__(self):
         return len(self.all_movie_reviews)
@@ -229,7 +245,6 @@ def collate_vader_fn(data):
         padded_feats = torch.LongTensor(len(batch_of_reviews),max_len,5).fill_(PAD_TOKEN)
 
         for i, list_of_scores in enumerate(batch_of_reviews):
-            #print(review)
             for j,score in enumerate(list_of_scores):
                 features = torch.Tensor([score['neg'], score['neu'], score['pos'], score['compound'], score['compound']])
                 padded_feats[i, j, :] = features # We copy each sequence into the matrix
@@ -245,7 +260,6 @@ def collate_vader_fn(data):
     # We just need one length for packed pad seq, since len(utt) == len(slots)
     features, _ = merge(new_item['document_scores'], new_item['document_lengths'])
     new_item["features"] = features.to(device)
-    #print(len(new_item))
     return new_item  
 
 
@@ -285,8 +299,7 @@ def collate_rev_fn(data):
         '''
         merge from batch * sent_len to batch * max_len 
         '''
-        #print(len(batch_of_reviews))
-        
+       
         review_lengths = [len(review) for review in batch_of_reviews]
         sents_lengths = []
         for review in batch_of_reviews:
@@ -302,17 +315,10 @@ def collate_rev_fn(data):
         # Add the sentence counter just to keep track of the index for the list sent_lengths
         sent_counter = 0
         for i, review in enumerate(batch_of_reviews):
-            #print(review)
             for j,sent in enumerate(review):
-                #print(sent)
-                #print(len(sent))
-                
-                #end_rev = review_lengths[i]
                 end_sent = sents_lengths[sent_counter]
-                #print('end sent', end_sent)
                 padded_seqs[i, j, :end_sent] = sent # We copy each sequence into the matrix
                 sent_counter += 1
-        # print(padded_seqs)
         padded_seqs = padded_seqs.detach()  # We remove these tensors from the computational graph
         return padded_seqs, sents_lengths
     # Sort data by seq lengths
@@ -360,7 +366,6 @@ def subjectivity_extraction(ds,fold_number):
             batch_of_tok_sentences.append(sent)
         # Add back the list of sentences to the original dataset
         original_ds.append(batch_of_sentences)
-        #print(batch_of_sentences)
         # Create the input tensor for the model initialized as PAD_TOKEN
         input = torch.LongTensor(len(batch_of_sentences),max(tok_len)).fill_(PAD_TOKEN)
         # Fill the input tensor with all the sentences
@@ -368,7 +373,6 @@ def subjectivity_extraction(ds,fold_number):
             end = sent.shape[1]
             input[i, :end] = sent
         
-        #print(input.shape)
         input = input.to(device)
         result = sub_model(input).to(device)
         # Compute the logits for each sentence
@@ -391,10 +395,17 @@ def subjectivity_extraction(ds,fold_number):
 
 
 def augment_dataset(ds,logits):
+    '''
+        This functions creates a graph for each document, where each node is a sentence.
+        Then computes the minimum cut (split the graph in two parts) and returns the sentences
+        that are subjective.
+        Args:
+            ds: The dataset
+            logits: The score of the sentence from applying the subjectivity model
+    '''
     aug_ds = []
     aug_str_ds = []
     for i,doc in enumerate(tqdm(ds)):
-        #print('lenghts',len(doc),len(logits[i]))
         G = generate_graph(doc, logits[i])
         cut_value, partition = nx.minimum_cut(G, "0", "1")
         reachable, non_reachable = partition
@@ -409,7 +420,7 @@ def augment_dataset(ds,logits):
         aug_ds.append(subset)
         aug_str_ds.append('\n'.join(subset))
     # Return the augmented dataset in two formats:
-    # 1) A list of lists of sentences
+    # 1) A list of lists of sentences (sentences are nested in a list which represent the document)
     # 2) A list of strings (each string is a document)
     return aug_ds, aug_str_ds
 
